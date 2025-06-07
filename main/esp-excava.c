@@ -380,4 +380,8 @@ void app_main(void)
         vTaskDelay(pdMS_TO_TICKS(5000)); // 5-second delay between LED toggles
         motor_test_sequence(&left_motor, &right_motor);
     }
+
+    // Cleanup: stop the strobe timer
+    ESP_ERROR_CHECK(esp_timer_stop(strobe_timer));
+    ESP_ERROR_CHECK(esp_timer_delete(strobe_timer));
 }
