@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include "esp_log.h"
 #include "nvs_flash.h"
-#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/gpio.h"
@@ -318,23 +317,26 @@ static void motor_test_sequence(const bidirectional_motor_t *left_motor, const b
     ESP_LOGI(TAG, "Motor test sequence completed");
 }
 
-#define LED_ON_TIME_US 100000   // 100ms
-#define LED_OFF_TIME_US 1000000 // 1000ms
+#define LED_ON_TIME_MS 100   // 100ms
+#define LED_OFF_TIME_MS 1000 // 1000ms
 
-esp_timer_handle_t strobe_timer;
+static TaskHandle_t strobe_task_handle = NULL;
 
-static void strobe_led_callback(void *arg)
+static void strobe_led_task(void *pvParameters)
 {
-    s_led_state = !s_led_state;
-    if (s_led_state)
+    ESP_LOGI(TAG, "Strobe LED task started");
+
+    while (1)
     {
+        // Turn LED on
         gpio_set_level(BLINK_GPIO, 1);
-        ESP_ERROR_CHECK(esp_timer_start_once(strobe_timer, LED_ON_TIME_US));
-    }
-    else
-    {
+        s_led_state = 1;
+        vTaskDelay(pdMS_TO_TICKS(LED_ON_TIME_MS));
+
+        // Turn LED off
         gpio_set_level(BLINK_GPIO, 0);
-        ESP_ERROR_CHECK(esp_timer_start_once(strobe_timer, LED_OFF_TIME_US));
+        s_led_state = 0;
+        vTaskDelay(pdMS_TO_TICKS(LED_OFF_TIME_MS));
     }
 }
 
@@ -360,13 +362,16 @@ void app_main(void)
     // Initialize motor control
     motor_init(&left_motor, &right_motor);
 
-    const esp_timer_create_args_t strobe_timer_args = {
-        .callback = &strobe_led_callback,
-        .name = "strobe"};
-
-    ESP_ERROR_CHECK(esp_timer_create(&strobe_timer_args, &strobe_timer));
-    // Start the strobe effect after 5 seconds
-    ESP_ERROR_CHECK(esp_timer_start_once(strobe_timer, 5000000));
+    // Create the strobe LED task
+    xTaskCreate(strobe_led_task, "strobe_led", 2048, NULL, 5, &strobe_task_handle);
+    if (strobe_task_handle == NULL)
+    {
+        ESP_LOGE(TAG, "Failed to create strobe LED task");
+    }
+    else
+    {
+        ESP_LOGI(TAG, "Strobe LED task created successfully");
+    }
 
     // Run the comprehensive motor test sequence
     ESP_LOGI(TAG, "Running comprehensive motor test sequence...");
@@ -380,8 +385,4 @@ void app_main(void)
         vTaskDelay(pdMS_TO_TICKS(5000)); // 5-second delay between LED toggles
         motor_test_sequence(&left_motor, &right_motor);
     }
-
-    // Cleanup: stop the strobe timer
-    ESP_ERROR_CHECK(esp_timer_stop(strobe_timer));
-    ESP_ERROR_CHECK(esp_timer_delete(strobe_timer));
 }
